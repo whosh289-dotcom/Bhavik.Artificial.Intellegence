@@ -135,17 +135,25 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const model = "gemini-3-flash-preview";
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+        throw new Error("API_KEY_MISSING");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const model = "gemini-flash-latest";
       
       // Prepare history for context
-      const history = activeSession?.messages.map(m => ({
-        role: m.role,
-        parts: [{ text: m.content }]
-      })) || [];
+      const history = activeSession?.messages
+        .filter(m => m.content && m.content.trim() !== "")
+        .map(m => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.content }]
+        })) || [];
 
       const chat = ai.chats.create({
         model,
+        history: history,
         config: {
           systemInstruction: "You are Bhavik AI, a helpful, intelligent, and friendly AI assistant. Your responses should be clear, concise, and professional yet approachable. You are powered by Google's Gemini models but your name is Bhavik AI.",
         },
@@ -168,12 +176,21 @@ export default function App() {
         }
         return s;
       }));
-    } catch (error) {
-      console.error("Error calling Gemini API:", error);
+    } catch (error: any) {
+      console.error("Bhavik AI Error:", error);
+      
+      let errorMessageContent = "I encountered an error while processing your request. Please try again.";
+      
+      if (error.message === "API_KEY_MISSING") {
+        errorMessageContent = "It looks like the Gemini API key is missing. Please ensure it's configured in the AI Studio Secrets panel.";
+      } else if (error.message?.includes("model not found")) {
+        errorMessageContent = "The AI model is currently unavailable. Please try again in a few moments.";
+      }
+
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: "I encountered an error while processing your request. Please try again.",
+        content: errorMessageContent,
         timestamp: new Date(),
       };
       setSessions(prev => prev.map(s => {
