@@ -110,6 +110,24 @@ export default function App() {
     }
   };
 
+  const clearCurrentChat = () => {
+    setSessions(prev => prev.map(s => {
+      if (s.id === activeSessionId) {
+        return { ...s, messages: [], title: 'New Chat' };
+      }
+      return s;
+    }));
+  };
+
+  const getApiKey = () => {
+    const keys = [
+      process.env.GEMINI_API_KEY,
+      process.env.GOOGLE_API_KEY,
+      process.env.API_KEY
+    ];
+    return keys.find(k => k && k !== 'MY_GEMINI_API_KEY') || null;
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading || !activeSessionId) return;
 
@@ -134,39 +152,67 @@ export default function App() {
     setInput('');
     setIsLoading(true);
 
-    try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-        throw new Error("API_KEY_MISSING");
+    const MAX_RETRIES = 2;
+    const modelsToTry = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-3.1-pro-preview"];
+    
+    const attemptChat = async (retryCount = 0, modelIndex = 0): Promise<string> => {
+      try {
+        const apiKey = getApiKey();
+        if (!apiKey) {
+          throw new Error("API_KEY_MISSING");
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
+        const modelName = modelsToTry[modelIndex];
+        
+        const history = activeSession?.messages
+          .filter(m => m.content && m.content.trim() !== "")
+          .map(m => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          })) || [];
+
+        const chat = ai.chats.create({
+          model: modelName,
+          history: history,
+          config: {
+            systemInstruction: "You are Bhavik AI, a highly resilient and intelligent AI assistant. Your goal is to provide helpful, accurate, and professional responses. If you encounter a technical limitation, explain it gracefully and offer an alternative solution. Your name is Bhavik AI.",
+          },
+        });
+
+        const result = await chat.sendMessage({ message: userMessage.content });
+        if (!result || !result.text) throw new Error("EMPTY_RESPONSE");
+        return result.text;
+
+      } catch (error: any) {
+        console.error(`Attempt ${retryCount + 1} failed with model ${modelsToTry[modelIndex]}:`, error);
+        
+        // If it's an API key issue, don't retry, just fail fast
+        if (error.message === "API_KEY_MISSING") throw error;
+
+        // If we have retries left for the CURRENT model, try again after a short delay
+        if (retryCount < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return attemptChat(retryCount + 1, modelIndex);
+        }
+
+        // If we've exhausted retries for the current model, try the NEXT model
+        if (modelIndex < modelsToTry.length - 1) {
+          return attemptChat(0, modelIndex + 1);
+        }
+
+        // If all models and retries fail, throw the original error
+        throw error;
       }
+    };
 
-      const ai = new GoogleGenAI({ apiKey });
-      const model = "gemini-flash-latest";
-      
-      // Prepare history for context
-      const history = activeSession?.messages
-        .filter(m => m.content && m.content.trim() !== "")
-        .map(m => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        })) || [];
-
-      const chat = ai.chats.create({
-        model,
-        history: history,
-        config: {
-          systemInstruction: "You are Bhavik AI, a helpful, intelligent, and friendly AI assistant. Your responses should be clear, concise, and professional yet approachable. You are powered by Google's Gemini models but your name is Bhavik AI.",
-        },
-      });
-
-      // Send message
-      const result = await chat.sendMessage({ message: userMessage.content });
-      const responseText = result.text;
+    try {
+      const responseText = await attemptChat();
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: responseText || "I'm sorry, I couldn't generate a response.",
+        content: responseText,
         timestamp: new Date(),
       };
 
@@ -177,14 +223,16 @@ export default function App() {
         return s;
       }));
     } catch (error: any) {
-      console.error("Bhavik AI Error:", error);
+      console.error("Bhavik AI Final Failure:", error);
       
-      let errorMessageContent = "I encountered an error while processing your request. Please try again.";
+      let errorMessageContent = "I'm having some trouble connecting to my brain right now. Please check your internet connection or try again in a few seconds.";
       
       if (error.message === "API_KEY_MISSING") {
-        errorMessageContent = "It looks like the Gemini API key is missing. Please ensure it's configured in the AI Studio Secrets panel.";
-      } else if (error.message?.includes("model not found")) {
-        errorMessageContent = "The AI model is currently unavailable. Please try again in a few moments.";
+        errorMessageContent = "⚠️ **API Key Missing**: I need a Gemini API key to function. Please add it to the 'Secrets' panel in AI Studio.";
+      } else if (error.message?.includes("quota") || error.message?.includes("429")) {
+        errorMessageContent = "I've been talking a bit too much lately and hit my limit. Please wait a minute before we continue our conversation.";
+      } else if (error.message === "EMPTY_RESPONSE") {
+        errorMessageContent = "I processed your request but couldn't generate a text response. Could you try rephrasing your question?";
       }
 
       const errorMessage: Message = {
@@ -310,9 +358,25 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">System Online</span>
+            <button 
+              onClick={clearCurrentChat}
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all text-xs font-medium"
+            >
+              <Trash2 size={14} /> Clear Chat
+            </button>
+            <div className={cn(
+              "hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full border",
+              !getApiKey()
+                ? "bg-red-500/10 border-red-500/20 text-red-500"
+                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+            )}>
+              <div className={cn(
+                "w-1.5 h-1.5 rounded-full animate-pulse",
+                !getApiKey() ? "bg-red-500" : "bg-emerald-500"
+              )} />
+              <span className="text-[10px] font-bold uppercase tracking-wider">
+                {!getApiKey() ? "API Key Missing" : "System Online"}
+              </span>
             </div>
             <button className="p-2 hover:bg-white/5 rounded-lg text-zinc-400">
               <MoreVertical size={20} />
@@ -325,6 +389,22 @@ export default function App() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 custom-scrollbar"
         >
+          {!getApiKey() && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-3xl mx-auto p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center gap-4 text-red-200"
+            >
+              <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                <Settings className="text-red-400" size={20} />
+              </div>
+              <div className="flex-1 text-sm">
+                <p className="font-bold">Gemini API Key Required</p>
+                <p className="opacity-80">To enable Bhavik AI, please add your API key to the <span className="font-bold">Secrets</span> panel in the AI Studio sidebar. Use the name <span className="font-mono bg-white/10 px-1 rounded">GEMINI_API_KEY</span>.</p>
+              </div>
+            </motion.div>
+          )}
+
           {activeSession?.messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto space-y-8">
               <motion.div 
@@ -387,11 +467,27 @@ export default function App() {
                         "inline-block max-w-full rounded-2xl p-4 md:p-5 text-sm md:text-base",
                         message.role === 'user' 
                           ? "bg-indigo-600/20 border border-indigo-500/20 text-zinc-100" 
-                          : "bg-zinc-900/50 border border-white/5 text-zinc-300"
+                          : message.content.includes("⚠️") || message.content.includes("trouble connecting")
+                            ? "bg-red-500/10 border border-red-500/20 text-red-200"
+                            : "bg-zinc-900/50 border border-white/5 text-zinc-300"
                       )}>
                         <div className="markdown-body">
                           <Markdown>{message.content}</Markdown>
                         </div>
+                        {(message.content.includes("trouble connecting") || message.content.includes("limit")) && (
+                          <button 
+                            onClick={() => {
+                              const lastUserMsg = [...(activeSession?.messages || [])].reverse().find(m => m.role === 'user');
+                              if (lastUserMsg) {
+                                setInput(lastUserMsg.content);
+                                handleSendMessage();
+                              }
+                            }}
+                            className="mt-3 text-xs font-bold uppercase tracking-wider text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                          >
+                            <Loader2 size={12} /> Try Again
+                          </button>
+                        )}
                       </div>
                       <p className="text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
                         {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
