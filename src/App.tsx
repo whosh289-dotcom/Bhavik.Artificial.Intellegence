@@ -47,7 +47,20 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+  
+  // Update sidebar state on resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -78,6 +91,7 @@ export default function App() {
     setSessions(prev => [newSession, ...prev]);
     setActiveSessionId(newSession.id);
     setInput('');
+    if (window.innerWidth < 1024) setIsSidebarOpen(false);
   };
 
   const deleteSession = (id: string, e: React.MouseEvent) => {
@@ -180,11 +194,31 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-[#0a0a0a] overflow-hidden">
+      {/* Sidebar - Mobile Overlay Backdrop */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <motion.aside 
         initial={false}
-        animate={{ width: isSidebarOpen ? 280 : 0, opacity: isSidebarOpen ? 1 : 0 }}
-        className="h-full bg-zinc-900/30 border-r border-white/5 flex flex-col overflow-hidden"
+        animate={{ 
+          width: isSidebarOpen ? (window.innerWidth < 1024 ? '85%' : 280) : 0, 
+          opacity: isSidebarOpen ? 1 : 0,
+          x: isSidebarOpen ? 0 : -20
+        }}
+        className={cn(
+          "h-full bg-zinc-900/95 lg:bg-zinc-900/30 border-r border-white/5 flex flex-col overflow-hidden z-50",
+          "fixed lg:relative"
+        )}
       >
         <div className="p-4 flex flex-col h-full">
           <button 
@@ -200,7 +234,10 @@ export default function App() {
             {sessions.map((session) => (
               <button
                 key={session.id}
-                onClick={() => setActiveSessionId(session.id)}
+                onClick={() => {
+                  setActiveSessionId(session.id);
+                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
+                }}
                 className={cn(
                   "flex items-center gap-3 w-full p-3 rounded-xl transition-all group relative",
                   activeSessionId === session.id ? "bg-indigo-500/10 text-indigo-300 border border-indigo-500/20" : "text-zinc-400 hover:bg-white/5"
@@ -235,8 +272,8 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative h-full overflow-hidden">
         {/* Header */}
-        <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
-          <div className="flex items-center gap-4">
+        <header className="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-6 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
+          <div className="flex items-center gap-3 md:gap-4">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-2 hover:bg-white/5 rounded-lg text-zinc-400 transition-all"
@@ -244,10 +281,11 @@ export default function App() {
               <ChevronRight className={cn("transition-transform", isSidebarOpen && "rotate-180")} size={20} />
             </button>
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-                <Sparkles size={18} className="text-white" />
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+                <Sparkles size={16} className="text-white md:hidden" />
+                <Sparkles size={18} className="text-white hidden md:block" />
               </div>
-              <h1 className="font-display font-bold text-lg tracking-tight">
+              <h1 className="font-display font-bold text-base md:text-lg tracking-tight">
                 Bhavik <span className="gradient-text">AI</span>
               </h1>
             </div>
@@ -277,15 +315,15 @@ export default function App() {
               >
                 <Sparkles size={40} className="text-indigo-400" />
               </motion.div>
-              <div className="space-y-4">
-                <h2 className="text-4xl font-display font-bold tracking-tight">
+              <div className="space-y-4 px-4">
+                <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">
                   How can I help you today?
                 </h2>
-                <p className="text-zinc-500 text-lg">
+                <p className="text-zinc-500 text-base md:text-lg">
                   I'm Bhavik AI, your intelligent companion. Ask me anything from writing code to planning your next trip.
                 </p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 w-full px-4">
                 {[
                   { icon: "💡", text: "Explain quantum computing in simple terms" },
                   { icon: "📝", text: "Write a professional email to my manager" },
@@ -364,17 +402,17 @@ export default function App() {
         </div>
 
         {/* Input Area */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-8 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/90 to-transparent">
+        <div className="absolute bottom-0 left-0 right-0 p-3 md:p-8 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/90 to-transparent">
           <div className="max-w-3xl mx-auto relative">
-            <div className="relative flex items-end gap-2 p-2 rounded-2xl bg-zinc-900/80 backdrop-blur-xl border border-white/10 shadow-2xl focus-within:border-indigo-500/50 transition-all">
+            <div className="relative flex items-end gap-2 p-1.5 md:p-2 rounded-2xl bg-zinc-900/80 backdrop-blur-xl border border-white/10 shadow-2xl focus-within:border-indigo-500/50 transition-all">
               <textarea
                 ref={inputRef}
                 rows={1}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Bhavik AI anything..."
-                className="flex-1 bg-transparent border-none focus:ring-0 text-zinc-100 placeholder-zinc-500 py-3 px-4 resize-none max-h-48 custom-scrollbar"
+                placeholder="Ask Bhavik AI..."
+                className="flex-1 bg-transparent border-none focus:ring-0 text-zinc-100 placeholder-zinc-500 py-2.5 md:py-3 px-3 md:px-4 resize-none max-h-32 md:max-h-48 custom-scrollbar text-sm md:text-base"
                 style={{ height: 'auto' }}
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
