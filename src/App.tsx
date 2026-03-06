@@ -47,15 +47,17 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Update sidebar state on resize
+  // Update sidebar state on resize - only if we want to force it open on large screens, 
+  // but the user wants to see the chat, so let's keep it closed initially.
   useEffect(() => {
     const handleResize = () => {
+      // We can keep it closed or open it on very large screens, 
+      // but to respect the user's request "show the chat when u open", 
+      // starting closed is safer.
       if (window.innerWidth < 1024) {
         setIsSidebarOpen(false);
-      } else {
-        setIsSidebarOpen(true);
       }
     };
     window.addEventListener('resize', handleResize);
@@ -409,6 +411,7 @@ export default function App() {
                 ref={inputRef}
                 rows={1}
                 value={input}
+                autoFocus
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask Bhavik AI..."
